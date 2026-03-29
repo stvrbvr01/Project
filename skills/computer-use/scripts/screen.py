@@ -244,24 +244,56 @@ def _log_capture(msg: str) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+# Cache the Session 0 check — it never changes during a process's lifetime.
+_is_session_zero: bool | None = None
+
+
+def _in_session_zero() -> bool:
+    """Check if we're running in Windows Session 0 (service context)."""
+    global _is_session_zero
+    if _is_session_zero is not None:
+        return _is_session_zero
+    if sys.platform != "win32":
+        _is_session_zero = False
+        return False
+    try:
+        _is_session_zero = _get_current_session_id() == 0
+    except Exception:
+        _is_session_zero = False
+    if _is_session_zero:
+        _log_capture("Running in Session 0 — will use interactive session capture")
+    return _is_session_zero
+
+
 def _capture_raw(monitor_idx: int) -> Image.Image:
-    """Capture a raw screenshot, with Windows Session 0 fallback."""
+    """Capture a raw screenshot, with Windows Session 0 bypass.
+
+    On Windows Session 0, mss always returns a black frame because the
+    service has no visible desktop.  We skip mss entirely and go straight
+    to CreateProcessAsUser to capture from the interactive session.
+    """
+    # On Windows Session 0, skip mss — it will always be black.
+    if _in_session_zero():
+        session_img = _capture_via_interactive_session(monitor_idx)
+        if session_img is not None:
+            return session_img
+        _log_capture(
+            "WARNING: Interactive session capture failed. "
+            "Ensure the service runs as LocalSystem and a user is logged in."
+        )
+
+    # Normal path: mss works fine on Linux, macOS, and Windows user sessions.
     with mss.mss() as sct:
         raw = sct.grab(sct.monitors[monitor_idx])
         img = Image.frombytes("RGB", (raw.width, raw.height), raw.rgb)
 
-    # On Windows, check if we got a black frame (Session 0 isolation).
+    # Safety net: if mss returned black on Windows (e.g., RDP disconnect),
+    # try the interactive session capture as a last resort.
     if sys.platform == "win32" and _is_black_frame(img):
-        _log_capture("Black frame detected — attempting interactive session capture")
+        _log_capture("Black frame from mss — trying interactive session capture")
         session_img = _capture_via_interactive_session(monitor_idx)
         if session_img is not None and not _is_black_frame(session_img):
-            _log_capture("Interactive session capture succeeded")
             return session_img
-        _log_capture(
-            "WARNING: Could not capture interactive desktop. "
-            "If running as a service, ensure it runs as LocalSystem. "
-            "As a workaround, run the script from a user terminal."
-        )
 
     return img
 
