@@ -57,12 +57,18 @@ PRESETS: dict[str, dict] = {
     },
 }
 
-# Actions that visibly change the screen.
-_VISUAL_ACTIONS = frozenset({
+# Actions that always trigger an automatic screenshot (pointer-based — they
+# move the cursor to a new position and may reveal new UI elements).
+_SCREENSHOT_ACTIONS = frozenset({
     "screenshot", "left_click", "right_click", "middle_click",
     "double_click", "triple_click", "left_click_drag", "scroll",
-    "type", "key",
 })
+
+# Keyboard actions that do NOT auto-screenshot.  Claude must explicitly
+# request a screenshot if it needs to see the result.  This saves ~1000
+# tokens per keyboard action in a batch (e.g., key+type+key = 1 turn
+# with no intermediate screenshots, then Claude requests one screenshot).
+_KEYBOARD_ACTIONS = frozenset({"type", "key"})
 
 _OS_HINTS = {
     "win32": (
@@ -93,14 +99,24 @@ _SAFETY_RULES = (
     "If a task requires interacting with a terminal, open a NEW terminal window instead. "
 )
 
+_EFFICIENCY_RULES = (
+    "EFFICIENCY RULES: "
+    "Emit MULTIPLE actions in a single response whenever the sequence is predictable. "
+    "For example, to open an app: emit key(Win), type(appname), key(Enter) all in ONE response — do not wait for a screenshot between each. "
+    "Only request a screenshot when you need to see the result of your actions (e.g., after clicking to verify the right thing opened, or to read screen content). "
+    "You will automatically receive a screenshot after any click or scroll action. "
+    "For keyboard actions (type, key), you will NOT automatically get a screenshot — request one explicitly with a screenshot action if you need to verify. "
+    "Maximize actions per turn. Minimize turns."
+)
+
 
 def _build_system_prompt() -> str:
     platform_hint = _OS_HINTS.get(sys.platform, _OS_HINTS["linux"])
     return (
         platform_hint
         + _SAFETY_RULES
-        + "Be maximally efficient: use the shortest action sequence, "
-        "do not explain your reasoning, do not narrate actions. "
+        + _EFFICIENCY_RULES
+        + "Do not explain your reasoning, do not narrate actions. "
         "When done, reply with a one-sentence summary."
     )
 
@@ -286,9 +302,13 @@ def run(
                 })
             else:
                 result_text = execute_action(action, block.input, sw, sh)
-                if action in _VISUAL_ACTIONS:
+                if action in _SCREENSHOT_ACTIONS:
                     needs_screenshot = True
                     time.sleep(0.3)
+                elif action in _KEYBOARD_ACTIONS:
+                    # Keyboard actions don't auto-screenshot.  Small delay
+                    # to let the UI process the input before the next action.
+                    time.sleep(0.15)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
