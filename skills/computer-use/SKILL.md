@@ -52,7 +52,7 @@ python3 {baseDir}/scripts/computer_use.py --task "Open System Settings and switc
 | `--token-budget` | `200000` | Max total tokens before stopping (0 = unlimited) |
 | `--grayscale` | auto | Force grayscale screenshots (enabled by default in `fast` preset) |
 | `--no-grayscale` | | Force color screenshots |
-| `--model` | `claude-sonnet-4-6-20250610` | Anthropic model to use |
+| `--model` | `claude-sonnet-4-6` | Anthropic model to use |
 | `--max-turns` | `50` | Max agent loop iterations |
 
 ### Presets

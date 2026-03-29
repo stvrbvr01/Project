@@ -61,7 +61,7 @@ PRESETS: dict[str, dict] = {
 _VISUAL_ACTIONS = frozenset({
     "screenshot", "left_click", "right_click", "middle_click",
     "double_click", "triple_click", "left_click_drag", "scroll",
-    "type", "key", "mouse_move",
+    "type", "key",
 })
 
 SYSTEM_PROMPT = (
@@ -195,7 +195,7 @@ def run(
 
         response = client.beta.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=1024,
             system=system,
             tools=tools,
             messages=messages,
@@ -295,7 +295,7 @@ def main() -> None:
         "--preset", choices=PRESETS.keys(), default="balanced",
         help="Preset: fast (cheapest), balanced (default), accurate.",
     )
-    parser.add_argument("--model", default="claude-sonnet-4-6-20250610")
+    parser.add_argument("--model", default="claude-sonnet-4-6")
     parser.add_argument("--max-turns", type=int, default=50)
     parser.add_argument("--token-budget", type=int, default=None,
                         help="Override preset token budget (default: 200000).")
