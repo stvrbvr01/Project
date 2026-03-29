@@ -124,7 +124,10 @@ _EFFICIENCY_RULES = (
     "Only request a screenshot when you need to see the result of your actions (e.g., after clicking to verify the right thing opened, or to read screen content). "
     "You will automatically receive a screenshot after any click or scroll action. "
     "For keyboard actions (type, key), you will NOT automatically get a screenshot — request one explicitly with a screenshot action if you need to verify. "
-    "Maximize actions per turn. Minimize turns."
+    "Maximize actions per turn. Minimize turns. "
+    "NEVER repeat an action you already performed. If you already typed text or pressed a key, do NOT do it again — take a screenshot to verify the result first. "
+    "If the screen looks wrong, diagnose before retrying. "
+    "When the task is complete, stop immediately and report success."
 )
 
 
@@ -349,9 +352,7 @@ def run(
 
         # Attach screenshot (or "unchanged" text) to last tool result.
         if needs_screenshot:
-            b64, sw, sh, changed = capture_screenshot(screen_cfg)
-            tools[0]["display_width_px"] = sw
-            tools[0]["display_height_px"] = sh
+            b64, _, _, changed = capture_screenshot(screen_cfg)
             if changed:
                 tool_results[-1]["content"].append(_make_screenshot_content(b64))
             else:
