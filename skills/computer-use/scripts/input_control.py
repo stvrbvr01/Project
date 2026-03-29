@@ -1,7 +1,7 @@
 """Mouse and keyboard control via pyautogui.
 
 Translates Claude computer-use tool actions into real input events.
-Coordinates from Claude are in the *scaled* screenshot space; callers
+Coordinates from Claude are in the scaled screenshot space; callers
 must map them back to native screen pixels before calling these helpers.
 """
 
@@ -11,10 +11,8 @@ import time
 
 import pyautogui
 
-# Disable pyautogui's built-in pause (we control timing ourselves)
-# and fail-safe (moving mouse to corner raises exception).
 pyautogui.PAUSE = 0
-pyautogui.FAILSAFE = True  # keep fail-safe on for safety
+pyautogui.FAILSAFE = True
 
 
 def move(x: int, y: int) -> None:
@@ -62,7 +60,6 @@ def left_click_drag(start_x: int, start_y: int, end_x: int, end_y: int) -> None:
 
 
 def scroll(x: int, y: int, delta_x: int, delta_y: int) -> None:
-    """Scroll at (x, y). delta_y positive = scroll up, negative = scroll down."""
     pyautogui.moveTo(x, y)
     if delta_y:
         pyautogui.scroll(delta_y)
@@ -71,16 +68,10 @@ def scroll(x: int, y: int, delta_x: int, delta_y: int) -> None:
 
 
 def type_text(text: str) -> None:
-    """Type text character by character (handles Unicode)."""
     pyautogui.write(text, interval=0.02)
 
 
 def press_key(key: str) -> None:
-    """Press a key or key combination.
-
-    Accepts strings like "Return", "ctrl+a", "alt+Tab", etc.
-    Modifier keys are mapped from Claude's naming to pyautogui's.
-    """
     key_map = {
         "Return": "enter",
         "Escape": "escape",
@@ -100,7 +91,6 @@ def press_key(key: str) -> None:
         "Super_R": "winright",
     }
 
-    # Handle modifier combos like "ctrl+a" or "ctrl+shift+t"
     if "+" in key:
         parts = key.split("+")
         mapped = [key_map.get(p, p.lower()) for p in parts]

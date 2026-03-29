@@ -1,14 +1,13 @@
 """Execute Claude computer-use tool calls by dispatching to input_control.
 
-Claude returns tool_use blocks whose *name* is ``computer`` and whose *input*
-contains an ``action`` field.  This module maps each action to the
-corresponding pyautogui call, handling coordinate scaling between the
-(possibly downscaled) screenshot space and native screen pixels.
+Maps each action to the corresponding pyautogui call, handling coordinate
+scaling between the (possibly downscaled) screenshot space and native pixels.
 """
 
 from __future__ import annotations
 
-from openclaw_computer_use import input_control, screen
+import input_control
+import screen
 
 
 def _scale_coords(
@@ -17,11 +16,8 @@ def _scale_coords(
     screenshot_w: int,
     screenshot_h: int,
 ) -> tuple[int, int]:
-    """Map coordinates from screenshot-space to native screen-space."""
     native_w, native_h = screen.get_screen_size()
-    sx = int(x * native_w / screenshot_w)
-    sy = int(y * native_h / screenshot_h)
-    return sx, sy
+    return int(x * native_w / screenshot_w), int(y * native_h / screenshot_h)
 
 
 def execute_action(
@@ -30,45 +26,38 @@ def execute_action(
     screenshot_w: int,
     screenshot_h: int,
 ) -> str | None:
-    """Run a single computer-use action.  Returns an optional text result."""
+    """Run a single computer-use action. Returns an optional text result."""
 
     def sc(x: int, y: int) -> tuple[int, int]:
         return _scale_coords(x, y, screenshot_w, screenshot_h)
 
     match action:
         case "screenshot":
-            # Handled by the agent loop (it captures a fresh screenshot).
             return None
 
         case "mouse_move":
             cx, cy = params["coordinate"]
-            nx, ny = sc(cx, cy)
-            input_control.move(nx, ny)
+            input_control.move(*sc(cx, cy))
 
         case "left_click":
             cx, cy = params["coordinate"]
-            nx, ny = sc(cx, cy)
-            input_control.left_click(nx, ny)
+            input_control.left_click(*sc(cx, cy))
 
         case "right_click":
             cx, cy = params["coordinate"]
-            nx, ny = sc(cx, cy)
-            input_control.right_click(nx, ny)
+            input_control.right_click(*sc(cx, cy))
 
         case "middle_click":
             cx, cy = params["coordinate"]
-            nx, ny = sc(cx, cy)
-            input_control.middle_click(nx, ny)
+            input_control.middle_click(*sc(cx, cy))
 
         case "double_click":
             cx, cy = params["coordinate"]
-            nx, ny = sc(cx, cy)
-            input_control.double_click(nx, ny)
+            input_control.double_click(*sc(cx, cy))
 
         case "triple_click":
             cx, cy = params["coordinate"]
-            nx, ny = sc(cx, cy)
-            input_control.triple_click(nx, ny)
+            input_control.triple_click(*sc(cx, cy))
 
         case "left_click_drag":
             sx, sy = params["start_coordinate"]
@@ -80,9 +69,7 @@ def execute_action(
         case "scroll":
             cx, cy = params["coordinate"]
             nx, ny = sc(cx, cy)
-            dx = params.get("delta_x", 0)
-            dy = params.get("delta_y", 0)
-            input_control.scroll(nx, ny, dx, dy)
+            input_control.scroll(nx, ny, params.get("delta_x", 0), params.get("delta_y", 0))
 
         case "type":
             input_control.type_text(params["text"])
@@ -92,15 +79,13 @@ def execute_action(
 
         case "cursor_position":
             px, py = input_control.get_cursor_position()
-            # Report position back in screenshot-space.
             native_w, native_h = screen.get_screen_size()
             spx = int(px * screenshot_w / native_w)
             spy = int(py * screenshot_h / native_h)
             return f"cursor_position: ({spx}, {spy})"
 
         case "wait":
-            secs = params.get("duration", 2)
-            input_control.wait(secs)
+            input_control.wait(params.get("duration", 2))
 
         case _:
             return f"Unknown action: {action}"
