@@ -69,7 +69,17 @@ def execute_action(
         case "scroll":
             cx, cy = params["coordinate"]
             nx, ny = sc(cx, cy)
-            input_control.scroll(nx, ny, params.get("delta_x", 0), params.get("delta_y", 0))
+            # Support both old format (delta_x/delta_y) and new format
+            # (scroll_direction + scroll_amount).
+            if "scroll_direction" in params:
+                amount = params.get("scroll_amount", 3)
+                direction = params["scroll_direction"]
+                dy = amount if direction == "up" else -amount if direction == "down" else 0
+                dx = amount if direction == "right" else -amount if direction == "left" else 0
+            else:
+                dx = params.get("delta_x", 0)
+                dy = params.get("delta_y", 0)
+            input_control.scroll(nx, ny, dx, dy)
 
         case "type":
             input_control.type_text(params["text"])
@@ -84,8 +94,26 @@ def execute_action(
             spy = int(py * screenshot_h / native_h)
             return f"cursor_position: ({spx}, {spy})"
 
+        case "left_mouse_down":
+            cx, cy = params["coordinate"]
+            input_control.mouse_down(*sc(cx, cy))
+
+        case "left_mouse_up":
+            cx, cy = params["coordinate"]
+            input_control.mouse_up(*sc(cx, cy))
+
+        case "hold_key":
+            key = params.get("key") or params.get("text", "")
+            duration = params.get("duration", 1)
+            input_control.hold_key(key, duration)
+
         case "wait":
             input_control.wait(params.get("duration", 2))
+
+        case "zoom":
+            # Zoom is handled by the agent loop — it captures a region
+            # at full resolution and returns it as a screenshot.
+            return None
 
         case _:
             return f"Unknown action: {action}"

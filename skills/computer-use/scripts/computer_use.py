@@ -29,6 +29,24 @@ import anthropic
 from screen import ScreenConfig, capture_screenshot
 from tools import execute_action
 
+# Models that use the newer computer_20251124 tool + beta header.
+_NEW_CU_MODELS = frozenset({
+    "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-5",
+})
+
+
+def _tool_version_for_model(model: str) -> tuple[str, str]:
+    """Return (tool_type, beta_header) for the given model.
+
+    Sonnet 4.6, Opus 4.6, and Opus 4.5 use computer_20251124.
+    Older models (Sonnet 4.5, Haiku 4.5, etc.) use computer_20250124.
+    """
+    # Check both the alias (claude-sonnet-4-6) and dated snapshot forms.
+    base = model.rsplit("-2025", 1)[0]  # strip date suffix if present
+    if base in _NEW_CU_MODELS or model in _NEW_CU_MODELS:
+        return "computer_20251124", "computer-use-2025-11-24"
+    return "computer_20250124", "computer-use-2025-01-24"
+
 # ---------------------------------------------------------------------------
 # Presets — fast is the default
 # ---------------------------------------------------------------------------
@@ -199,6 +217,8 @@ def run(
 ) -> str:
     """Run the computer-use agent loop. Returns Claude's final text."""
     client = anthropic.Anthropic()
+    tool_type, beta_header = _tool_version_for_model(model)
+    _log(f"[computer-use] tool={tool_type} beta={beta_header}")
 
     # Initial screenshot.
     b64, sw, sh, _ = capture_screenshot(screen_cfg)
@@ -216,7 +236,7 @@ def run(
     # Tool definition with prompt-cache breakpoint.
     tools = [
         {
-            "type": "computer_20250124",
+            "type": tool_type,
             "name": "computer",
             "display_width_px": sw,
             "display_height_px": sh,
@@ -248,7 +268,7 @@ def run(
             system=system,
             tools=tools,
             messages=messages,
-            betas=["computer-use-2025-01-24"],
+            betas=[beta_header],
         )
 
         # Track token usage.
@@ -299,6 +319,18 @@ def run(
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": [],
+                })
+            elif action == "zoom":
+                # Zoom: capture a region at full resolution.
+                region = block.input.get("region", [0, 0, sw, sh])
+                from screen import capture_zoom_region
+                zoom_b64 = capture_zoom_region(
+                    region, sw, sh, screen_cfg.jpeg_quality
+                )
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": [_make_screenshot_content(zoom_b64)],
                 })
             else:
                 result_text = execute_action(action, block.input, sw, sh)

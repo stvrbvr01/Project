@@ -100,6 +100,28 @@ def press_key(key: str) -> None:
         pyautogui.press(mapped_key)
 
 
+def mouse_down(x: int, y: int) -> None:
+    pyautogui.moveTo(x, y)
+    pyautogui.mouseDown(button="left")
+
+
+def mouse_up(x: int, y: int) -> None:
+    pyautogui.moveTo(x, y)
+    pyautogui.mouseUp(button="left")
+
+
+def hold_key(key: str, duration: float = 1.0) -> None:
+    key_map = {
+        "Return": "enter", "Escape": "escape", "BackSpace": "backspace",
+        "Tab": "tab", "space": "space", "Delete": "delete",
+        "Super_L": "win", "Super_R": "winright",
+    }
+    mapped = key_map.get(key, key.lower())
+    pyautogui.keyDown(mapped)
+    time.sleep(duration)
+    pyautogui.keyUp(mapped)
+
+
 def wait(seconds: float = 1.0) -> None:
     time.sleep(seconds)
 

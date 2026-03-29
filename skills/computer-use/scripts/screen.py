@@ -332,6 +332,34 @@ def capture_screenshot(
     return b64, img.width, img.height, changed
 
 
+def capture_zoom_region(
+    region: list[int],
+    screenshot_w: int,
+    screenshot_h: int,
+    jpeg_quality: int = 50,
+) -> str:
+    """Capture a screen region at full native resolution for the zoom action.
+
+    *region* is [x1, y1, x2, y2] in screenshot-space coordinates.
+    Returns base64-encoded JPEG of the cropped region without downscaling.
+    """
+    native_w, native_h = get_screen_size()
+    sx = native_w / screenshot_w
+    sy = native_h / screenshot_h
+
+    x1 = int(region[0] * sx)
+    y1 = int(region[1] * sy)
+    x2 = int(region[2] * sx)
+    y2 = int(region[3] * sy)
+
+    img = _capture_raw(0)
+    cropped = img.crop((x1, y1, x2, y2))
+
+    buf = io.BytesIO()
+    cropped.save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
+    return base64.standard_b64encode(buf.getvalue()).decode("ascii")
+
+
 def get_screen_size() -> tuple[int, int]:
     """Return the native screen resolution (before any scaling)."""
     if sys.platform == "win32":
