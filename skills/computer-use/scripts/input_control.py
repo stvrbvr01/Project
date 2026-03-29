@@ -12,7 +12,7 @@ import time
 import pyautogui
 
 pyautogui.PAUSE = 0
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # agent legitimately moves to screen corners
 
 
 def move(x: int, y: int) -> None:

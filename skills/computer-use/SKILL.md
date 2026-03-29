@@ -33,7 +33,7 @@ Ensure `ANTHROPIC_API_KEY` is set in the environment.
 
 - **Linux**: Requires X11 or Wayland. Install `python3-xlib` if using X11.
 - **macOS**: Grant "Screen Recording" permission to the terminal app in System Settings → Privacy & Security.
-- **Windows**: Works out of the box. May need to run as administrator for some UI automation.
+- **Windows**: Works out of the box. May need to run as administrator for some UI automation. When OpenClaw runs as a Windows service (Session 0), the script automatically bridges to the interactive desktop via GDI for screen capture.
 
 ## Running
 
@@ -52,7 +52,7 @@ python3 {baseDir}/scripts/computer_use.py --task "Open System Settings and switc
 | `--token-budget` | `200000` | Max total tokens before stopping (0 = unlimited) |
 | `--grayscale` | auto | Force grayscale screenshots (enabled by default in `fast` preset) |
 | `--no-grayscale` | | Force color screenshots |
-| `--model` | `claude-sonnet-4-6` | Anthropic model to use |
+| `--model` | `claude-sonnet-4-6` | Anthropic model (auto-resolves to latest snapshot) |
 | `--max-turns` | `50` | Max agent loop iterations |
 
 ### Presets

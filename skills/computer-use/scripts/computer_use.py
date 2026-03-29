@@ -64,12 +64,35 @@ _VISUAL_ACTIONS = frozenset({
     "type", "key",
 })
 
-SYSTEM_PROMPT = (
-    "You control a computer to complete the user's task. "
-    "Be maximally efficient: use the shortest action sequence, "
-    "do not explain your reasoning, do not narrate actions. "
-    "When done, reply with a one-sentence summary."
-)
+_OS_HINTS = {
+    "win32": (
+        "You control a Windows computer. "
+        "Use Windows conventions: Win key opens Start menu, use Start menu search to launch apps, "
+        "Ctrl+C/V for copy/paste, Alt+F4 to close windows. "
+        "To open an app: press Win key, wait, type the app name, press Enter. "
+    ),
+    "darwin": (
+        "You control a macOS computer. "
+        "Use macOS conventions: Cmd+Space opens Spotlight, Cmd+C/V for copy/paste, "
+        "Cmd+Q to quit apps, Cmd+Tab to switch apps. "
+        "To open an app: press Cmd+Space, type the app name, press Enter. "
+    ),
+    "linux": (
+        "You control a Linux computer. "
+        "Use standard shortcuts: Ctrl+C/V for copy/paste in most apps (Ctrl+Shift+C/V in terminals). "
+        "App launching depends on the desktop environment. "
+    ),
+}
+
+
+def _build_system_prompt() -> str:
+    platform_hint = _OS_HINTS.get(sys.platform, _OS_HINTS["linux"])
+    return (
+        platform_hint
+        + "Be maximally efficient: use the shortest action sequence, "
+        "do not explain your reasoning, do not narrate actions. "
+        "When done, reply with a one-sentence summary."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +203,7 @@ def run(
     system = [
         {
             "type": "text",
-            "text": SYSTEM_PROMPT,
+            "text": _build_system_prompt(),
             "cache_control": {"type": "ephemeral"},
         }
     ]
