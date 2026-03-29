@@ -75,7 +75,7 @@ def execute_action(
             input_control.type_text(params["text"])
 
         case "key":
-            input_control.press_key(params["key"])
+            input_control.press_key(params.get("key") or params.get("text", ""))
 
         case "cursor_position":
             px, py = input_control.get_cursor_position()

@@ -193,7 +193,7 @@ def run(
         _prune_old_images(messages)
         _tag_cache_breakpoint(messages)
 
-        response = client.messages.create(
+        response = client.beta.messages.create(
             model=model,
             max_tokens=4096,
             system=system,
@@ -292,10 +292,10 @@ def main() -> None:
     )
     parser.add_argument("--task", required=True, help="Task description.")
     parser.add_argument(
-        "--preset", choices=PRESETS.keys(), default="fast",
-        help="Preset: fast (default, cheapest), balanced, accurate.",
+        "--preset", choices=PRESETS.keys(), default="balanced",
+        help="Preset: fast (cheapest), balanced (default), accurate.",
     )
-    parser.add_argument("--model", default="claude-sonnet-4-20250514")
+    parser.add_argument("--model", default="claude-sonnet-4-6-20250610")
     parser.add_argument("--max-turns", type=int, default=50)
     parser.add_argument("--token-budget", type=int, default=None,
                         help="Override preset token budget (default: 200000).")

@@ -48,17 +48,17 @@ python3 {baseDir}/scripts/computer_use.py --task "Open System Settings and switc
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--task` | (required) | Natural-language task description |
-| `--preset` | `fast` | `fast` (cheapest), `balanced`, or `accurate` |
+| `--preset` | `balanced` | `fast` (cheapest), `balanced` (default), or `accurate` |
 | `--token-budget` | `200000` | Max total tokens before stopping (0 = unlimited) |
 | `--grayscale` | auto | Force grayscale screenshots (enabled by default in `fast` preset) |
 | `--no-grayscale` | | Force color screenshots |
-| `--model` | `claude-sonnet-4-20250514` | Anthropic model to use |
+| `--model` | `claude-sonnet-4-6-20250610` | Anthropic model to use |
 | `--max-turns` | `50` | Max agent loop iterations |
 
 ### Presets
 
-- **fast** (default): 800x600, JPEG quality 35, grayscale on. Cheapest.
-- **balanced**: 1024x768, JPEG quality 50, color.
+- **fast**: 800x600, JPEG quality 35, grayscale on. Cheapest per-screenshot, but may need more turns for precise UI tasks.
+- **balanced** (default): 1024x768, JPEG quality 50, color. Best cost-to-accuracy tradeoff.
 - **accurate**: 1280x800, JPEG quality 60, color. Best visual fidelity.
 
 All presets enforce a 200K token budget by default.
