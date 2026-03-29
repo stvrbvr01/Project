@@ -85,10 +85,20 @@ _OS_HINTS = {
 }
 
 
+_SAFETY_RULES = (
+    "CRITICAL SAFETY RULES: "
+    "NEVER close, minimize, or interact with any terminal, PowerShell, CMD, or console window. "
+    "NEVER open Task Manager (Ctrl+Shift+Esc) or kill/end any process. "
+    "These windows may be running the script that controls you — closing them kills you. "
+    "If a task requires interacting with a terminal, open a NEW terminal window instead. "
+)
+
+
 def _build_system_prompt() -> str:
     platform_hint = _OS_HINTS.get(sys.platform, _OS_HINTS["linux"])
     return (
         platform_hint
+        + _SAFETY_RULES
         + "Be maximally efficient: use the shortest action sequence, "
         "do not explain your reasoning, do not narrate actions. "
         "When done, reply with a one-sentence summary."
