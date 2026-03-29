@@ -1,7 +1,7 @@
 ---
 name: computer-use
 description: Control the computer screen, mouse, and keyboard like a human. Use when you need to perform visual desktop tasks — clicking buttons, filling forms, navigating UIs without a CLI or API.
-metadata: {"openclaw": {"requires": {"bins": ["python3"], "env": ["ANTHROPIC_API_KEY"]}, "os": ["linux", "darwin"], "emoji": "🖥️"}}
+metadata: {"openclaw": {"requires": {"bins": ["python3"], "env": ["ANTHROPIC_API_KEY"]}, "os": ["linux", "darwin", "win32"], "emoji": "🖥️"}}
 ---
 
 # Computer Use
@@ -27,7 +27,13 @@ pip install anthropic mss Pillow pyautogui
 
 Ensure `ANTHROPIC_API_KEY` is set in the environment.
 
-On Linux, ensure a display server is running (`$DISPLAY` or `$WAYLAND_DISPLAY` set).
+**Note:** This skill uses a *separate* Anthropic API connection from OpenClaw's own session. The computer-use protocol requires its own Claude conversation loop with screenshot exchange. Token usage is logged to stderr so you can monitor cost.
+
+### Platform Notes
+
+- **Linux**: Requires X11 or Wayland. Install `python3-xlib` if using X11.
+- **macOS**: Grant "Screen Recording" permission to the terminal app in System Settings → Privacy & Security.
+- **Windows**: Works out of the box. May need to run as administrator for some UI automation.
 
 ## Running
 
