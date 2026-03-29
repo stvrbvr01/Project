@@ -7,17 +7,27 @@ desktop screenshots, which directly reduces input-token cost.
 Change detection uses a perceptual hash to avoid sending duplicate
 screenshots when the screen hasn't changed (saves ~1000 tokens per skip).
 
-On Windows, includes Session 0 isolation workaround — when running as a
-service, mss captures a black frame because it sees Session 0's empty
-desktop.  We detect this and fall back to GDI capture via the interactive
-desktop.
+Windows Session 0 isolation
+----------------------------
+When OpenClaw runs as a Windows service, the process lives in Session 0
+which has no visible desktop.  mss/GDI will only see a black frame.
+Window stations are per-session objects — you cannot reach the interactive
+desktop from Session 0 via SetThreadDesktop or OpenDesktopW.
+
+The fix: detect the black frame, then use WTSQueryUserToken +
+CreateProcessAsUser to launch a tiny capture subprocess in the
+interactive user's session (Session 1+).  That subprocess runs mss
+normally (it can see the real desktop) and writes the screenshot to a
+temp file, which we read back.
 """
 
 from __future__ import annotations
 
 import base64
 import io
+import os
 import sys
+import tempfile
 from dataclasses import dataclass
 
 import mss
@@ -53,95 +63,186 @@ def _hamming_distance(a: str, b: str) -> int:
 
 
 def _is_black_frame(img: Image.Image, threshold: int = 10) -> bool:
-    """Check if an image is effectively all black (service Session 0)."""
-    grayscale = img.convert("L")
-    # Sample pixels across the image — if mean brightness < threshold, it's black.
-    pixels = list(grayscale.getdata())
+    """Check if an image is effectively all black (Session 0 symptom)."""
+    gray = img.convert("L")
+    pixels = list(gray.getdata())
     return (sum(pixels) / len(pixels)) < threshold
 
 
-def _capture_win32_gdi(monitor_idx: int = 0) -> Image.Image | None:
-    """Capture the interactive desktop on Windows using GDI via win32 APIs.
+def _get_current_session_id() -> int:
+    """Get the Windows session ID of the current process."""
+    import ctypes
+    import ctypes.wintypes as wt
+    kernel32 = ctypes.windll.kernel32
+    sid = wt.DWORD()
+    kernel32.ProcessIdToSessionId(kernel32.GetCurrentProcessId(), ctypes.byref(sid))
+    return sid.value
 
-    This works even from Session 0 (services) by switching to the
-    interactive user's desktop before capturing.
+
+def _capture_via_interactive_session(monitor_idx: int) -> Image.Image | None:
+    """Launch a capture subprocess in the interactive user session.
+
+    Uses WTSQueryUserToken + CreateProcessAsUser to spawn a Python process
+    in the logged-in user's session (Session 1+), which can see the real
+    desktop.  The subprocess captures via mss and writes a JPEG to a temp
+    file that we read back.
+
+    Requires the service to run as LocalSystem (default for most services).
     """
     try:
         import ctypes
-        import ctypes.wintypes
+        import ctypes.wintypes as wt
 
-        user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
-        gdi32 = ctypes.windll.gdi32
+        advapi32 = ctypes.windll.advapi32
+        wtsapi32 = ctypes.windll.wtsapi32
 
-        # Open the interactive desktop ("Default" on WinSta0).
-        hdesk = user32.OpenDesktopW("Default", 0, False, 0x0100)  # DESKTOP_READOBJECTS
-        if not hdesk:
-            # Try the input desktop instead.
-            hdesk = user32.OpenInputDesktop(0, False, 0x0100)
-        if not hdesk:
+        # Find the interactive session (the one with the physical display).
+        session_id = kernel32.WTSGetActiveConsoleSessionId()
+        if session_id == 0xFFFFFFFF:
+            _log_capture("No active console session found")
             return None
 
-        # Temporarily switch this thread to the interactive desktop.
-        old_desktop = user32.GetThreadDesktop(kernel32.GetCurrentThreadId())
-        user32.SetThreadDesktop(hdesk)
+        # Get the logged-in user's token for that session.
+        user_token = wt.HANDLE()
+        if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(user_token)):
+            _log_capture(f"WTSQueryUserToken failed for session {session_id}")
+            return None
 
         try:
-            # Get screen dimensions.
-            width = user32.GetSystemMetrics(0)   # SM_CXSCREEN
-            height = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+            # Duplicate the token as a primary token for CreateProcessAsUser.
+            dup_token = wt.HANDLE()
+            # MAXIMUM_ALLOWED=0x02000000, SecurityImpersonation=2, TokenPrimary=1
+            if not advapi32.DuplicateTokenEx(
+                user_token, 0x02000000, None, 2, 1, ctypes.byref(dup_token)
+            ):
+                _log_capture("DuplicateTokenEx failed")
+                return None
 
-            # GDI screen capture.
-            hdc_screen = user32.GetDC(0)
-            hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
-            hbmp = gdi32.CreateCompatibleBitmap(hdc_screen, width, height)
-            gdi32.SelectObject(hdc_mem, hbmp)
-            gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, 0, 0, 0x00CC0020)  # SRCCOPY
+            try:
+                # Create the user's environment block.
+                userenv = ctypes.windll.userenv
+                env_block = ctypes.c_void_p()
+                userenv.CreateEnvironmentBlock(ctypes.byref(env_block), dup_token, False)
 
-            # Read bitmap bits into a buffer.
-            class BITMAPINFOHEADER(ctypes.Structure):
-                _fields_ = [
-                    ("biSize", ctypes.wintypes.DWORD),
-                    ("biWidth", ctypes.wintypes.LONG),
-                    ("biHeight", ctypes.wintypes.LONG),
-                    ("biPlanes", ctypes.wintypes.WORD),
-                    ("biBitCount", ctypes.wintypes.WORD),
-                    ("biCompression", ctypes.wintypes.DWORD),
-                    ("biSizeImage", ctypes.wintypes.DWORD),
-                    ("biXPelsPerMeter", ctypes.wintypes.LONG),
-                    ("biYPelsPerMeter", ctypes.wintypes.LONG),
-                    ("biClrUsed", ctypes.wintypes.DWORD),
-                    ("biClrImportant", ctypes.wintypes.DWORD),
-                ]
-
-            bmi = BITMAPINFOHEADER()
-            bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-            bmi.biWidth = width
-            bmi.biHeight = -height  # top-down
-            bmi.biPlanes = 1
-            bmi.biBitCount = 32
-            bmi.biCompression = 0  # BI_RGB
-
-            buf_size = width * height * 4
-            buf = ctypes.create_string_buffer(buf_size)
-            gdi32.GetDIBits(hdc_mem, hbmp, 0, height, buf, ctypes.byref(bmi), 0)
-
-            # Clean up GDI objects.
-            gdi32.DeleteObject(hbmp)
-            gdi32.DeleteDC(hdc_mem)
-            user32.ReleaseDC(0, hdc_screen)
-
-            # Convert BGRA → RGB via Pillow.
-            img = Image.frombytes("RGBX", (width, height), buf.raw, "raw", "BGRX")
-            return img.convert("RGB")
+                try:
+                    return _spawn_capture_process(
+                        dup_token, env_block, monitor_idx, kernel32, advapi32
+                    )
+                finally:
+                    if env_block:
+                        userenv.DestroyEnvironmentBlock(env_block)
+            finally:
+                kernel32.CloseHandle(dup_token)
         finally:
-            # Restore original desktop.
-            user32.SetThreadDesktop(old_desktop)
-            user32.CloseDesktop(hdesk)
+            kernel32.CloseHandle(user_token)
 
-    except Exception:
+    except Exception as e:
+        _log_capture(f"Interactive session capture failed: {e}")
         return None
 
+
+def _spawn_capture_process(
+    token, env_block, monitor_idx: int, kernel32, advapi32
+) -> Image.Image | None:
+    """Create a process in the user's session that captures the screen."""
+    import ctypes
+    import ctypes.wintypes as wt
+
+    # STARTUPINFOW structure.
+    class STARTUPINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cb", wt.DWORD), ("lpReserved", wt.LPWSTR),
+            ("lpDesktop", wt.LPWSTR), ("lpTitle", wt.LPWSTR),
+            ("dwX", wt.DWORD), ("dwY", wt.DWORD),
+            ("dwXSize", wt.DWORD), ("dwYSize", wt.DWORD),
+            ("dwXCountChars", wt.DWORD), ("dwYCountChars", wt.DWORD),
+            ("dwFillAttribute", wt.DWORD), ("dwFlags", wt.DWORD),
+            ("wShowWindow", wt.WORD), ("cbReserved2", wt.WORD),
+            ("lpReserved2", ctypes.c_void_p),
+            ("hStdInput", wt.HANDLE), ("hStdOutput", wt.HANDLE),
+            ("hStdError", wt.HANDLE),
+        ]
+
+    class PROCESS_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("hProcess", wt.HANDLE), ("hThread", wt.HANDLE),
+            ("dwProcessId", wt.DWORD), ("dwThreadId", wt.DWORD),
+        ]
+
+    # Temp file for the captured screenshot.
+    fd, output_path = tempfile.mkstemp(suffix=".bmp")
+    os.close(fd)
+    os.unlink(output_path)  # remove so we can detect when it's written
+
+    # Inline capture script — keeps it self-contained, no external file needed.
+    # Use forward slashes to avoid escaping issues in the -c string.
+    out_escaped = output_path.replace("\\", "/")
+    capture_script = (
+        "import mss;from PIL import Image;"
+        f"s=mss.mss();r=s.grab(s.monitors[{monitor_idx}]);"
+        "i=Image.frombytes('RGB',(r.width,r.height),r.rgb);"
+        f"i.save('{out_escaped}','BMP')"
+    )
+
+    python_exe = sys.executable
+    cmd = f'"{python_exe}" -c "{capture_script}"'
+
+    si = STARTUPINFOW()
+    si.cb = ctypes.sizeof(STARTUPINFOW)
+    si.lpDesktop = "WinSta0\\Default"  # interactive desktop
+    si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+
+    pi = PROCESS_INFORMATION()
+
+    # CREATE_UNICODE_ENVIRONMENT=0x400 | CREATE_NO_WINDOW=0x08000000
+    creation_flags = 0x00000400 | 0x08000000
+
+    success = advapi32.CreateProcessAsUserW(
+        token,
+        None,           # lpApplicationName
+        cmd,            # lpCommandLine
+        None, None,     # process/thread security attributes
+        False,          # inherit handles
+        creation_flags,
+        env_block,
+        None,           # current directory (inherit)
+        ctypes.byref(si),
+        ctypes.byref(pi),
+    )
+
+    if not success:
+        err = kernel32.GetLastError()
+        _log_capture(f"CreateProcessAsUserW failed with error {err}")
+        return None
+
+    try:
+        # Wait for the capture process to finish (max 15 seconds).
+        kernel32.WaitForSingleObject(pi.hProcess, 15000)
+    finally:
+        kernel32.CloseHandle(pi.hProcess)
+        kernel32.CloseHandle(pi.hThread)
+
+    # Read the captured image.
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        try:
+            img = Image.open(output_path).convert("RGB")
+            return img
+        finally:
+            os.unlink(output_path)
+    else:
+        _log_capture("Capture subprocess did not produce output")
+        return None
+
+
+def _log_capture(msg: str) -> None:
+    print(f"  [screen] {msg}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def _capture_raw(monitor_idx: int) -> Image.Image:
     """Capture a raw screenshot, with Windows Session 0 fallback."""
@@ -151,9 +252,16 @@ def _capture_raw(monitor_idx: int) -> Image.Image:
 
     # On Windows, check if we got a black frame (Session 0 isolation).
     if sys.platform == "win32" and _is_black_frame(img):
-        gdi_img = _capture_win32_gdi(monitor_idx)
-        if gdi_img is not None and not _is_black_frame(gdi_img):
-            return gdi_img
+        _log_capture("Black frame detected — attempting interactive session capture")
+        session_img = _capture_via_interactive_session(monitor_idx)
+        if session_img is not None and not _is_black_frame(session_img):
+            _log_capture("Interactive session capture succeeded")
+            return session_img
+        _log_capture(
+            "WARNING: Could not capture interactive desktop. "
+            "If running as a service, ensure it runs as LocalSystem. "
+            "As a workaround, run the script from a user terminal."
+        )
 
     return img
 
@@ -198,6 +306,7 @@ def get_screen_size() -> tuple[int, int]:
         try:
             import ctypes
             user32 = ctypes.windll.user32
+            user32.SetProcessDPIAware()
             return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
         except Exception:
             pass
